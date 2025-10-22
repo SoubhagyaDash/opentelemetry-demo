@@ -23,7 +23,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/IBM/sarama"
 	"github.com/google/uuid"
 	otelhooks "github.com/open-feature/go-sdk-contrib/hooks/open-telemetry/pkg"
 	flagd "github.com/open-feature/go-sdk-contrib/providers/flagd/pkg"
@@ -54,7 +53,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/open-telemetry/opentelemetry-demo/src/checkout/genproto/oteldemo"
-	"github.com/open-telemetry/opentelemetry-demo/src/checkout/kafka"
+	"github.com/open-telemetry/opentelemetry-demo/src/checkout/eventhub"
 	"github.com/open-telemetry/opentelemetry-demo/src/checkout/money"
 )
 
@@ -139,9 +138,10 @@ type checkout struct {
 	shippingSvcAddr       string
 	emailSvcAddr          string
 	paymentSvcAddr        string
-	kafkaBrokerSvcAddr    string
+	eventHubNamespace     string
+	eventHubName          string
 	pb.UnimplementedCheckoutServiceServer
-	KafkaProducerClient     sarama.AsyncProducer
+	EventHubProducerClient  *eventhub.EventHubProducer
 	shippingSvcClient       pb.ShippingServiceClient
 	productCatalogSvcClient pb.ProductCatalogServiceClient
 	cartSvcClient           pb.CartServiceClient
@@ -228,12 +228,26 @@ func main() {
 	svc.paymentSvcClient = pb.NewPaymentServiceClient(c)
 	defer c.Close()
 
-	svc.kafkaBrokerSvcAddr = os.Getenv("KAFKA_ADDR")
+	svc.eventHubNamespace = os.Getenv("EVENTHUB_NAMESPACE")
+	svc.eventHubName = os.Getenv("EVENTHUB_NAME")
+	if svc.eventHubName == "" {
+		svc.eventHubName = "orders" // Default EventHub name
+	}
 
-	if svc.kafkaBrokerSvcAddr != "" {
-		svc.KafkaProducerClient, err = kafka.CreateKafkaProducer([]string{svc.kafkaBrokerSvcAddr}, logger)
+	if svc.eventHubNamespace != "" {
+		config := eventhub.EventHubConfig{
+			NamespaceName: svc.eventHubNamespace,
+			EventHubName:  svc.eventHubName,
+		}
+		svc.EventHubProducerClient, err = eventhub.CreateEventHubProducer(config, logger)
 		if err != nil {
-			logger.Error(err.Error())
+			logger.Error(fmt.Sprintf("Failed to create EventHub producer: %v", err))
+		} else {
+			defer func() {
+				if closeErr := svc.EventHubProducerClient.Close(context.Background()); closeErr != nil {
+					logger.Error(fmt.Sprintf("Failed to close EventHub producer: %v", closeErr))
+				}
+			}()
 		}
 	}
 
@@ -382,9 +396,9 @@ func (cs *checkout) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (
 		logger.Info(fmt.Sprintf("order confirmation email sent to %q", req.Email))
 	}
 
-	// send to kafka only if kafka broker address is set
-	if cs.kafkaBrokerSvcAddr != "" {
-		logger.Info("sending to postProcessor")
+	// send to EventHub only if EventHub namespace is configured
+	if svc.eventHubNamespace != "" {
+		logger.Info("sending to postProcessor via EventHub")
 		cs.sendToPostProcessor(ctx, orderResult)
 	}
 
@@ -615,87 +629,75 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 		return
 	}
 
-	msg := sarama.ProducerMessage{
-		Topic: kafka.Topic,
-		Value: sarama.ByteEncoder(message),
-	}
-
-	// Inject tracing info into message
-	span := createProducerSpan(ctx, &msg)
+	// Create EventHub-specific span
+	span := cs.createEventHubProducerSpan(ctx, message)
 	defer span.End()
 
-	// Send message and handle response
+	// Send message to EventHub
 	startTime := time.Now()
-	select {
-	case cs.KafkaProducerClient.Input() <- &msg:
-		select {
-		case successMsg := <-cs.KafkaProducerClient.Successes():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", true),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-				attribute.KeyValue(semconv.MessagingKafkaMessageOffset(int(successMsg.Offset))),
-			)
-			logger.Info(fmt.Sprintf("Successful to write message. offset: %v, duration: %v", successMsg.Offset, time.Since(startTime)))
-		case errMsg := <-cs.KafkaProducerClient.Errors():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", false),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-			)
-			span.SetStatus(otelcodes.Error, errMsg.Err.Error())
-			logger.Error(fmt.Sprintf("Failed to write message: %v", errMsg.Err))
-		case <-ctx.Done():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", false),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-			)
-			span.SetStatus(otelcodes.Error, "Context cancelled: "+ctx.Err().Error())
-			logger.Warn(fmt.Sprintf("Context canceled before success message received: %v", ctx.Err()))
-		}
-	case <-ctx.Done():
-		span.SetAttributes(
-			attribute.Bool("messaging.kafka.producer.success", false),
-			attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-		)
-		span.SetStatus(otelcodes.Error, "Failed to send: "+ctx.Err().Error())
-		logger.Error(fmt.Sprintf("Failed to send message to Kafka within context deadline: %v", ctx.Err()))
+	
+	if cs.EventHubProducerClient == nil {
+		span.SetStatus(otelcodes.Error, "EventHub producer client is not initialized")
+		logger.Error("EventHub producer client is not initialized")
 		return
 	}
 
-	ffValue := cs.getIntFeatureFlag(ctx, "kafkaQueueProblems")
+	err = cs.EventHubProducerClient.SendEvent(ctx, message)
+	duration := time.Since(startTime)
+
+	if err != nil {
+		span.SetAttributes(
+			attribute.Bool("messaging.eventhub.producer.success", false),
+			attribute.Int("messaging.eventhub.producer.duration_ms", int(duration.Milliseconds())),
+		)
+		span.SetStatus(otelcodes.Error, err.Error())
+		logger.Error(fmt.Sprintf("Failed to send message to EventHub: %v", err))
+	} else {
+		span.SetAttributes(
+			attribute.Bool("messaging.eventhub.producer.success", true),
+			attribute.Int("messaging.eventhub.producer.duration_ms", int(duration.Milliseconds())),
+		)
+		logger.Info(fmt.Sprintf("Successfully sent message to EventHub. duration: %v", duration))
+	}
+
+	// Feature flag simulation for queue overload (optional)
+	ffValue := cs.getIntFeatureFlag(ctx, "eventHubQueueProblems")
 	if ffValue > 0 {
-		logger.Info("Warning: FeatureFlag 'kafkaQueueProblems' is activated, overloading queue now.")
+		logger.Info("Warning: FeatureFlag 'eventHubQueueProblems' is activated, simulating queue overload.")
 		for i := 0; i < ffValue; i++ {
 			go func(i int) {
-				cs.KafkaProducerClient.Input() <- &msg
-				_ = <-cs.KafkaProducerClient.Successes()
+				_ = cs.EventHubProducerClient.SendEvent(context.Background(), message)
 			}(i)
 		}
 		logger.Info(fmt.Sprintf("Done with #%d messages for overload simulation.", ffValue))
 	}
 }
 
-func createProducerSpan(ctx context.Context, msg *sarama.ProducerMessage) trace.Span {
+func (cs *checkout) createEventHubProducerSpan(ctx context.Context, message []byte) trace.Span {
+	eventHubName := cs.eventHubName
+	if eventHubName == "" {
+		eventHubName = "orders"
+	}
+
 	spanContext, span := tracer.Start(
 		ctx,
-		fmt.Sprintf("%s publish", msg.Topic),
+		fmt.Sprintf("%s publish", eventHubName),
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
-			semconv.PeerService("kafka"),
+			semconv.PeerService("eventhub"),
 			semconv.NetworkTransportTCP,
-			semconv.MessagingSystemKafka,
-			semconv.MessagingDestinationName(msg.Topic),
+			semconv.MessagingSystemKey.String("eventhub"),
+			semconv.MessagingDestinationName(eventHubName),
 			semconv.MessagingOperationPublish,
-			semconv.MessagingKafkaDestinationPartition(int(msg.Partition)),
+			attribute.String("messaging.eventhub.namespace", cs.eventHubNamespace),
+			attribute.Int("messaging.message.body.size", len(message)),
 		),
 	)
 
+	// Inject tracing context for downstream consumers
 	carrier := propagation.MapCarrier{}
 	propagator := otel.GetTextMapPropagator()
 	propagator.Inject(spanContext, carrier)
-
-	for key, value := range carrier {
-		msg.Headers = append(msg.Headers, sarama.RecordHeader{Key: []byte(key), Value: []byte(value)})
-	}
 
 	return span
 }

@@ -3,7 +3,8 @@ module github.com/open-telemetry/opentelemetry-demo/src/checkout
 go 1.24.2
 
 require (
-	github.com/IBM/sarama v1.46.2
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.0
+	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/open-feature/go-sdk v1.16.0
 	github.com/open-feature/go-sdk-contrib/hooks/open-telemetry v0.3.6
