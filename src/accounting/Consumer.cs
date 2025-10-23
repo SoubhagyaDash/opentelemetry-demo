@@ -100,7 +100,7 @@ internal class Consumer : IDisposable
     public void StartListening()
     {
         // Keep synchronous interface for backward compatibility
-        Task.Run(async () => await StartListeningAsync());
+        Task.Run(async () => await StartListeningAsync()).Wait();
     }
 
     private void ProcessMessage(EventData eventData)

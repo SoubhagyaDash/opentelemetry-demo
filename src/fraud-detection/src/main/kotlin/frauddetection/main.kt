@@ -61,30 +61,40 @@ fun main() {
     try {
         logger.info("Starting to consume events from EventHub")
         
-        // Start consuming events from the beginning of each partition
-        consumer.receiveFromPartition(
-            "0", // Partition ID - you might want to iterate over all partitions
-            EventPosition.earliest()
-        ).subscribe { partitionEvent: PartitionEvent ->
-            totalCount += 1
-            
-            if (getFeatureFlagValue("eventHubQueueProblems") > 0) {
-                logger.info("FeatureFlag 'eventHubQueueProblems' is enabled, sleeping 1 second")
-                Thread.sleep(1000)
-            }
-            
-            try {
-                val eventData = partitionEvent.data
-                val orders = OrderResult.parseFrom(eventData.body)
-                logger.info("Consumed event with orderId: ${orders.orderId}, and updated total count to: $totalCount")
-            } catch (e: Exception) {
-                logger.error("Error processing event: ${e.message}", e)
-            }
+        // Consume events from all partitions
+        val partitionIds = consumer.partitionIds
+        logger.info("Available partitions: $partitionIds")
+        
+        // For simplicity, consuming from all partitions in a blocking manner
+        // In production, you'd want to consume from each partition in separate threads
+        partitionIds.forEach { partitionId ->
+            Thread {
+                consumer.receiveFromPartition(
+                    partitionId,
+                    EventPosition.earliest()
+                ).forEach { partitionEvent ->
+                    totalCount += 1
+                    
+                    if (getFeatureFlagValue("eventHubQueueProblems") > 0) {
+                        logger.info("FeatureFlag 'eventHubQueueProblems' is enabled, sleeping 1 second")
+                        Thread.sleep(1000)
+                    }
+                    
+                    try {
+                        val eventData = partitionEvent.data
+                        val orders = OrderResult.parseFrom(eventData.body)
+                        logger.info("Consumed event with orderId: ${orders.orderId}, and updated total count to: $totalCount")
+                    } catch (e: Exception) {
+                        logger.error("Error processing event: ${e.message}", e)
+                    }
+                }
+            }.start()
         }
         
-        // Keep the application running
+        // Keep the main thread alive
         while (true) {
-            Thread.sleep(1000)
+            Thread.sleep(5000)
+            logger.info("Current total count: $totalCount")
         }
         
     } catch (e: Exception) {
