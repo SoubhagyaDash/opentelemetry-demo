@@ -1,7 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-using Confluent.Kafka;
+using Azure.Identity;
+using Azure.Messaging.EventHubs;
+using Azure.Messaging.EventHubs.Consumer;
 using Microsoft.Extensions.Logging;
 using Oteldemo;
 using Microsoft.EntityFrameworkCore;
@@ -26,61 +28,86 @@ internal class DBContext : DbContext
 
 internal class Consumer : IDisposable
 {
-    private const string TopicName = "orders";
+    private const string EventHubName = "orders";
+    private const string ConsumerGroup = "accounting";
 
-    private ILogger _logger;
-    private IConsumer<string, byte[]> _consumer;
+    private readonly ILogger _logger;
+    private EventHubConsumerClient? _consumer;
     private bool _isListening;
     private DBContext? _dbContext;
     private static readonly ActivitySource MyActivitySource = new("Accounting.Consumer");
+    private CancellationTokenSource? _cancellationTokenSource;
 
     public Consumer(ILogger<Consumer> logger)
     {
         _logger = logger;
 
-        var servers = Environment.GetEnvironmentVariable("KAFKA_ADDR")
-            ?? throw new ArgumentNullException("KAFKA_ADDR");
+        var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE")
+            ?? throw new ArgumentNullException("EVENTHUB_NAMESPACE");
 
-        _consumer = BuildConsumer(servers);
-        _consumer.Subscribe(TopicName);
+        var eventHubEntityName = Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? EventHubName;
+        var fullyQualifiedNamespace = $"{eventHubNamespace}.servicebus.windows.net";
 
-        _logger.LogInformation($"Connecting to Kafka: {servers}");
+        _consumer = BuildConsumer(fullyQualifiedNamespace, eventHubEntityName);
+
+        _logger.LogInformation($"Connecting to EventHub: {fullyQualifiedNamespace}/{eventHubEntityName}");
         _dbContext = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING") == null ? null : new DBContext();
+        _cancellationTokenSource = new CancellationTokenSource();
     }
 
-    public void StartListening()
+    public async Task StartListeningAsync()
     {
         _isListening = true;
 
+        if (_consumer == null)
+        {
+            _logger.LogError("EventHub consumer is not initialized");
+            return;
+        }
+
         try
         {
-            while (_isListening)
+            await foreach (PartitionEvent partitionEvent in _consumer.ReadEventsAsync(_cancellationTokenSource?.Token ?? CancellationToken.None))
             {
+                if (!_isListening)
+                    break;
+
                 try
                 {
-                    using var activity = MyActivitySource.StartActivity("order-consumed",  ActivityKind.Internal);
-                    var consumeResult = _consumer.Consume();
-                    ProcessMessage(consumeResult.Message);
+                    using var activity = MyActivitySource.StartActivity("order-consumed", ActivityKind.Internal);
+                    ProcessMessage(partitionEvent.Data);
                 }
-                catch (ConsumeException e)
+                catch (Exception e)
                 {
-                    _logger.LogError(e, "Consume error: {0}", e.Error.Reason);
+                    _logger.LogError(e, "Event processing error: {0}", e.Message);
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Closing consumer");
-
-            _consumer.Close();
+            _logger.LogInformation("EventHub consumer operation was cancelled");
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error reading events from EventHub: {0}", e.Message);
+        }
+        finally
+        {
+            _logger.LogInformation("Closing EventHub consumer");
         }
     }
 
-    private void ProcessMessage(Message<string, byte[]> message)
+    public void StartListening()
+    {
+        // Keep synchronous interface for backward compatibility
+        Task.Run(async () => await StartListeningAsync());
+    }
+
+    private void ProcessMessage(EventData eventData)
     {
         try
         {
-            var order = OrderResult.Parser.ParseFrom(message.Value);
+            var order = OrderResult.Parser.ParseFrom(eventData.Body.ToArray());
             Log.OrderReceivedMessage(_logger, order);
 
             if (_dbContext == null)
@@ -130,24 +157,24 @@ internal class Consumer : IDisposable
         }
     }
 
-    private IConsumer<string, byte[]> BuildConsumer(string servers)
+    private EventHubConsumerClient BuildConsumer(string fullyQualifiedNamespace, string eventHubName)
     {
-        var conf = new ConsumerConfig
-        {
-            GroupId = $"accounting",
-            BootstrapServers = servers,
-            // https://github.com/confluentinc/confluent-kafka-dotnet/tree/07de95ed647af80a0db39ce6a8891a630423b952#basic-consumer-example
-            AutoOffsetReset = AutoOffsetReset.Earliest,
-            EnableAutoCommit = true
-        };
+        // Use DefaultAzureCredential for managed identity authentication
+        var credential = new DefaultAzureCredential();
 
-        return new ConsumerBuilder<string, byte[]>(conf)
-            .Build();
+        return new EventHubConsumerClient(
+            ConsumerGroup,
+            fullyQualifiedNamespace,
+            eventHubName,
+            credential);
     }
 
     public void Dispose()
     {
         _isListening = false;
-        _consumer?.Dispose();
+        _cancellationTokenSource?.Cancel();
+        _consumer?.DisposeAsync().AsTask().Wait();
+        _cancellationTokenSource?.Dispose();
+        _dbContext?.Dispose();
     }
 }

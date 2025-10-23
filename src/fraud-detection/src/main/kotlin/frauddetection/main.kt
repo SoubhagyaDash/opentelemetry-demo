@@ -5,14 +5,15 @@
 
 package frauddetection
 
-import org.apache.kafka.clients.consumer.ConsumerConfig.*
-import org.apache.kafka.clients.consumer.KafkaConsumer
-import org.apache.kafka.common.serialization.ByteArrayDeserializer
-import org.apache.kafka.common.serialization.StringDeserializer
+import com.azure.identity.DefaultAzureCredentialBuilder
+import com.azure.messaging.eventhubs.EventHubClientBuilder
+import com.azure.messaging.eventhubs.EventHubConsumerClient
+import com.azure.messaging.eventhubs.models.EventPosition
+import com.azure.messaging.eventhubs.models.PartitionEvent
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import oteldemo.Demo.*
-import java.time.Duration.ofMillis
+import java.time.Duration
 import java.util.*
 import kotlin.system.exitProcess
 import dev.openfeature.contrib.providers.flagd.FlagdOptions
@@ -23,49 +24,74 @@ import dev.openfeature.sdk.ImmutableContext
 import dev.openfeature.sdk.Value
 import dev.openfeature.sdk.OpenFeatureAPI
 
-const val topic = "orders"
-const val groupID = "fraud-detection"
+const val eventHubName = "orders"
+const val consumerGroup = "fraud-detection"
 
-private val logger: Logger = LogManager.getLogger(groupID)
+private val logger: Logger = LogManager.getLogger(consumerGroup)
 
 fun main() {
     val options = FlagdOptions.builder()
-    .withGlobalTelemetry(true)
-    .build()
+        .withGlobalTelemetry(true)
+        .build()
     val flagdProvider = FlagdProvider(options)
     OpenFeatureAPI.getInstance().setProvider(flagdProvider)
 
-    val props = Properties()
-    props[KEY_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java.name
-    props[VALUE_DESERIALIZER_CLASS_CONFIG] = ByteArrayDeserializer::class.java.name
-    props[GROUP_ID_CONFIG] = groupID
-    val bootstrapServers = System.getenv("KAFKA_ADDR")
-    if (bootstrapServers == null) {
-        println("KAFKA_ADDR is not supplied")
+    // Get EventHub configuration from environment variables
+    val eventHubNamespace = System.getenv("EVENTHUB_NAMESPACE")
+    if (eventHubNamespace == null) {
+        println("EVENTHUB_NAMESPACE is not supplied")
         exitProcess(1)
     }
-    props[BOOTSTRAP_SERVERS_CONFIG] = bootstrapServers
-    val consumer = KafkaConsumer<String, ByteArray>(props).apply {
-        subscribe(listOf(topic))
-    }
+
+    val eventHubEntityName = System.getenv("EVENTHUB_NAME") ?: eventHubName
+    val fullyQualifiedNamespace = "$eventHubNamespace.servicebus.windows.net"
+
+    logger.info("Connecting to EventHub: $fullyQualifiedNamespace/$eventHubEntityName")
+
+    // Create EventHub consumer using managed identity
+    val credential = DefaultAzureCredentialBuilder().build()
+    
+    val consumer: EventHubConsumerClient = EventHubClientBuilder()
+        .credential(fullyQualifiedNamespace, eventHubEntityName, credential)
+        .consumerGroup(consumerGroup)
+        .buildConsumerClient()
 
     var totalCount = 0L
 
-    consumer.use {
-        while (true) {
-            totalCount = consumer
-                .poll(ofMillis(100))
-                .fold(totalCount) { accumulator, record ->
-                    val newCount = accumulator + 1
-                    if (getFeatureFlagValue("kafkaQueueProblems") > 0) {
-                        logger.info("FeatureFlag 'kafkaQueueProblems' is enabled, sleeping 1 second")
-                        Thread.sleep(1000)
-                    }
-                    val orders = OrderResult.parseFrom(record.value())
-                    logger.info("Consumed record with orderId: ${orders.orderId}, and updated total count to: $newCount")
-                    newCount
-                }
+    try {
+        logger.info("Starting to consume events from EventHub")
+        
+        // Start consuming events from the beginning of each partition
+        consumer.receiveFromPartition(
+            "0", // Partition ID - you might want to iterate over all partitions
+            EventPosition.earliest()
+        ).subscribe { partitionEvent: PartitionEvent ->
+            totalCount += 1
+            
+            if (getFeatureFlagValue("eventHubQueueProblems") > 0) {
+                logger.info("FeatureFlag 'eventHubQueueProblems' is enabled, sleeping 1 second")
+                Thread.sleep(1000)
+            }
+            
+            try {
+                val eventData = partitionEvent.data
+                val orders = OrderResult.parseFrom(eventData.body)
+                logger.info("Consumed event with orderId: ${orders.orderId}, and updated total count to: $totalCount")
+            } catch (e: Exception) {
+                logger.error("Error processing event: ${e.message}", e)
+            }
         }
+        
+        // Keep the application running
+        while (true) {
+            Thread.sleep(1000)
+        }
+        
+    } catch (e: Exception) {
+        logger.error("Error during EventHub consumption: ${e.message}", e)
+    } finally {
+        consumer.close()
+        logger.info("EventHub consumer closed")
     }
 }
 
@@ -73,7 +99,7 @@ fun main() {
 * Retrieves the status of a feature flag from the Feature Flag service.
 *
 * @param ff The name of the feature flag to retrieve.
-* @return `true` if the feature flag is enabled, `false` otherwise or in case of errors.
+* @return The integer value of the feature flag, 0 if disabled or in case of errors.
 */
 fun getFeatureFlagValue(ff: String): Int {
     val client = OpenFeatureAPI.getInstance().client
