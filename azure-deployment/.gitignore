@@ -1,0 +1,39 @@
+# Azure deployment directory
+azure-deployment/
+
+# Compiled Bicep files
+*.json.bak
+
+# Azure CLI logs
+.azure/
+
+# Environment-specific files
+.env.local
+.env.production
+.env.staging
+
+# Terraform state files (if using Terraform later)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# IDE files
+.vs/
+.vscode/settings.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Sensitive files
+secrets.yaml
+*.pem
+*.key
+
+# Helm values files with secrets
+values-*.yaml
+!values-example.yaml

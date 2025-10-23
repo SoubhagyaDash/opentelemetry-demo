@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName": {
+      "value": "otel-demo"
+    },
+    "environment": {
+      "value": "dev"
+    },
+    "location": {
+      "value": "East US 2"
+    },
+    "nodeVmSize": {
+      "value": "Standard_D4s_v3"
+    },
+    "nodeCount": {
+      "value": 3
+    },
+    "maxPodsPerNode": {
+      "value": 30
+    },
+    "enableAzureMonitor": {
+      "value": true
+    },
+    "enableKeyVault": {
+      "value": true
+    },
+    "enableAcr": {
+      "value": true
+    },
+    "enableEventHub": {
+      "value": true
+    },
+    "eventHubSku": {
+      "value": "Standard"
+    },
+    "eventHubThroughputUnits": {
+      "value": 2
+    },
+    "tags": {
+      "value": {
+        "Environment": "dev",
+        "Project": "otel-demo",
+        "Application": "OpenTelemetry-Demo",
+        "Owner": "DevOps Team",
+        "CostCenter": "Engineering"
+      }
+    }
+  }
+}
