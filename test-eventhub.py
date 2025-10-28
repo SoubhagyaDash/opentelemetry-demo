@@ -8,7 +8,7 @@ from azure.eventhub.aio import EventHubProducerClient
 from azure.eventhub import EventData
 
 async def send_test_message():
-    connection_string = "Endpoint=sb://otel-demo-eventhub-dev-5jsiyj.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=3cepxk9eZghEDtqW2pvy9Kv8d+Pu8IpSZ+AEhA9vD5Q="
+    connection_string = ""
     eventhub_name = "otel-events"
     
     # Create a producer client to send messages to the event hub
