@@ -80,7 +80,7 @@ fun main() {
             Thread {
                 consumer.receiveFromPartition(
                     partitionId,
-                    partitionId.toInt(),
+                    100,  // Maximum messages to receive per call
                     EventPosition.earliest()
                 ).forEach { partitionEvent: PartitionEvent ->
                     totalCount += 1

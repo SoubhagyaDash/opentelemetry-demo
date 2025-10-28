@@ -159,14 +159,29 @@ internal class Consumer : IDisposable
 
     private EventHubConsumerClient BuildConsumer(string fullyQualifiedNamespace, string eventHubName)
     {
-        // Use DefaultAzureCredential for managed identity authentication
-        var credential = new DefaultAzureCredential();
+        // Check if connection string is provided
+        var connectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTION_STRING");
+        
+        if (!string.IsNullOrEmpty(connectionString))
+        {
+            _logger.LogInformation("Using EventHub connection string authentication");
+            return new EventHubConsumerClient(
+                ConsumerGroup,
+                connectionString,
+                eventHubName);
+        }
+        else
+        {
+            _logger.LogInformation("Using DefaultAzureCredential authentication");
+            // Use DefaultAzureCredential for managed identity authentication
+            var credential = new DefaultAzureCredential();
 
-        return new EventHubConsumerClient(
-            ConsumerGroup,
-            fullyQualifiedNamespace,
-            eventHubName,
-            credential);
+            return new EventHubConsumerClient(
+                ConsumerGroup,
+                fullyQualifiedNamespace,
+                eventHubName,
+                credential);
+        }
     }
 
     public void Dispose()

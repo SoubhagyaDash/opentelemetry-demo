@@ -18506,7 +18506,7 @@ spec:
       serviceAccountName: opentelemetry-demo
       containers:
         - name: accounting
-          image: 'oteldemo5jsiyjacr.azurecr.io/otel-demo-accounting:latest'
+          image: 'oteldemo5jsiyjacr.azurecr.io/otel-demo-accounting:v2'
           imagePullPolicy: IfNotPresent
           env:
             - name: OTEL_SERVICE_NAME
@@ -19063,7 +19063,7 @@ spec:
       serviceAccountName: opentelemetry-demo
       containers:
         - name: fraud-detection
-          image: 'oteldemo5jsiyjacr.azurecr.io/otel-demo-fraud-detection:v2'
+          image: 'oteldemo5jsiyjacr.azurecr.io/otel-demo-fraud-detection:v3'
           imagePullPolicy: IfNotPresent
           env:
             - name: OTEL_SERVICE_NAME
