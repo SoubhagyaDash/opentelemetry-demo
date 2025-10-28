@@ -48,13 +48,22 @@ fun main() {
 
     logger.info("Connecting to EventHub: $fullyQualifiedNamespace/$eventHubEntityName")
 
-    // Create EventHub consumer using managed identity
-    val credential = DefaultAzureCredentialBuilder().build()
-    
-    val consumer: EventHubConsumerClient = EventHubClientBuilder()
-        .credential(fullyQualifiedNamespace, eventHubEntityName, credential)
-        .consumerGroup(consumerGroup)
-        .buildConsumerClient()
+    // Create EventHub consumer using connection string if available, otherwise managed identity
+    val connectionString = System.getenv("EVENTHUB_CONNECTION_STRING")
+    val consumer: EventHubConsumerClient = if (!connectionString.isNullOrEmpty()) {
+        logger.info("Using EventHub connection string authentication")
+        EventHubClientBuilder()
+            .connectionString(connectionString, eventHubEntityName)
+            .consumerGroup(consumerGroup)
+            .buildConsumerClient()
+    } else {
+        logger.info("Using DefaultAzureCredential authentication")
+        val credential = DefaultAzureCredentialBuilder().build()
+        EventHubClientBuilder()
+            .credential(fullyQualifiedNamespace, eventHubEntityName, credential)
+            .consumerGroup(consumerGroup)
+            .buildConsumerClient()
+    }
 
     var totalCount = 0L
 
@@ -71,8 +80,9 @@ fun main() {
             Thread {
                 consumer.receiveFromPartition(
                     partitionId,
+                    partitionId.toInt(),
                     EventPosition.earliest()
-                ).forEach { partitionEvent ->
+                ).forEach { partitionEvent: PartitionEvent ->
                     totalCount += 1
                     
                     if (getFeatureFlagValue("eventHubQueueProblems") > 0) {

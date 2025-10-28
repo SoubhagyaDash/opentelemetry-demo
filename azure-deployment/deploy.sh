@@ -9,6 +9,7 @@ set -e
 RESOURCE_GROUP="otel-demo-rg"
 LOCATION="East US 2"
 DEPLOYMENT_NAME="otel-demo-deployment"
+NAMESPACE="otel-demo"
 BICEP_FILE="main.bicep"
 PARAMETERS_FILE="main.parameters.json"
 
@@ -171,11 +172,14 @@ deploy_otel_demo() {
     if command -v kubectl &> /dev/null; then
         # Check if Kubernetes manifest exists
         if [[ -f "../kubernetes/opentelemetry-demo.yaml" ]]; then
-            kubectl apply -f "../kubernetes/opentelemetry-demo.yaml"
+            # Create namespace if it doesn't exist
+            kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+            # Apply the manifest to the specific namespace
+            kubectl apply -f "../kubernetes/opentelemetry-demo.yaml" -n "$NAMESPACE"
             log_success "OpenTelemetry demo deployed successfully."
         else
             log_warning "Kubernetes manifest not found. Please deploy manually using:"
-            echo "  kubectl apply -f ../kubernetes/opentelemetry-demo.yaml"
+            echo "  kubectl apply -f ../kubernetes/opentelemetry-demo.yaml -n $NAMESPACE"
         fi
     else
         log_warning "kubectl not available. Please deploy manually."

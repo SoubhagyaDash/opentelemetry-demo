@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: eventhub-test
+  namespace: otel-demo
+spec:
+  containers:
+  - name: test
+    image: mcr.microsoft.com/azure-cli:latest
+    command: ["/bin/sleep", "3600"]
+    env:
+    - name: EVENTHUB_CONNECTION_STRING
+      valueFrom:
+        secretKeyRef:
+          name: eventhub-secret
+          key: connection-string
+    - name: EVENTHUB_NAME
+      value: otel-events
+  restartPolicy: Never

@@ -25,11 +25,12 @@ type EventHubProducer struct {
 
 // EventHubConfig holds configuration for EventHub connection
 type EventHubConfig struct {
-	NamespaceName string // EventHub namespace name (without .servicebus.windows.net)
-	EventHubName  string // EventHub entity name
+	NamespaceName     string // EventHub namespace name (without .servicebus.windows.net)
+	EventHubName      string // EventHub entity name
+	ConnectionString  string // EventHub connection string (optional, for connection string auth)
 }
 
-// CreateEventHubProducer creates a new EventHub producer using managed identity
+// CreateEventHubProducer creates a new EventHub producer using connection string or managed identity
 func CreateEventHubProducer(config EventHubConfig, logger *slog.Logger) (*EventHubProducer, error) {
 	if config.NamespaceName == "" {
 		return nil, fmt.Errorf("EventHub namespace name is required")
@@ -39,23 +40,36 @@ func CreateEventHubProducer(config EventHubConfig, logger *slog.Logger) (*EventH
 		config.EventHubName = EventHubName // Use default if not specified
 	}
 
-	// Create a DefaultAzureCredential for managed identity authentication
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Azure credential: %v", err)
-	}
+	var client *azeventhubs.ProducerClient
+	var err error
 
-	// Construct the fully qualified namespace
-	fullyQualifiedNamespace := fmt.Sprintf("%s.servicebus.windows.net", config.NamespaceName)
+	// Check if connection string is provided
+	if config.ConnectionString != "" {
+		logger.Info("Using EventHub connection string authentication")
+		// Use connection string authentication
+		client, err = azeventhubs.NewProducerClientFromConnectionString(config.ConnectionString, config.EventHubName, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create EventHub producer client with connection string: %v", err)
+		}
+	} else {
+		logger.Info("Using DefaultAzureCredential authentication")
+		// Create a DefaultAzureCredential for managed identity authentication
+		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Azure credential: %v", err)
+		}
 
-	// Create the EventHub producer client
-	client, err := azeventhubs.NewProducerClient(fullyQualifiedNamespace, config.EventHubName, cred, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create EventHub producer client: %v", err)
+		// Construct the fully qualified namespace
+		fullyQualifiedNamespace := fmt.Sprintf("%s.servicebus.windows.net", config.NamespaceName)
+
+		// Create the EventHub producer client
+		client, err = azeventhubs.NewProducerClient(fullyQualifiedNamespace, config.EventHubName, cred, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create EventHub producer client: %v", err)
+		}
 	}
 
 	logger.Info("EventHub producer client created successfully", 
-		slog.String("namespace", fullyQualifiedNamespace),
 		slog.String("eventhub", config.EventHubName))
 
 	return &EventHubProducer{

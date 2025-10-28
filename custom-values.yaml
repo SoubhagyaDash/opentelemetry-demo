@@ -1,0 +1,92 @@
+# Custom values for OpenTelemetry Demo with ACR images
+default:
+  env:
+    - name: KAFKA_SERVICE_ADDR
+      value: "oteldemo5jsiy.servicebus.windows.net:9093"
+
+components:
+  accounting:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-accounting
+      tag: latest
+
+  ad:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-ad
+      tag: latest
+
+  cart:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-cart
+      tag: latest
+
+  checkout:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-checkout
+      tag: latest
+
+  currency:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-currency
+      tag: latest
+
+  email:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-email
+      tag: latest
+
+  fraud-detection:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-fraud-detection
+      tag: latest
+
+  frontend:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-frontend
+      tag: latest
+
+  frontend-proxy:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-frontend-proxy
+      tag: latest
+
+  image-provider:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-image-provider
+      tag: latest
+
+  load-generator:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-load-generator
+      tag: latest
+
+  payment:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-payment
+      tag: latest
+
+  product-catalog:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-product-catalog
+      tag: latest
+
+  quote:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-quote
+      tag: latest
+
+  recommendation:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-recommendation
+      tag: latest
+
+  shipping:
+    imageOverride:
+      repository: oteldemo5jsiyjacr.azurecr.io/otel-demo-shipping
+      tag: latest
+
+# Configure EventHub connection
+default:
+  env:
+    - name: KAFKA_SERVICE_ADDR
+      value: "oteldemo5jsiy.servicebus.windows.net:9093"

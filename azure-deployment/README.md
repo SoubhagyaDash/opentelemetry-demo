@@ -102,12 +102,15 @@ az aks get-credentials --resource-group otel-demo-rg --name otel-demo-aks-dev
 
 ### 6. Deploy Applications
 ```bash
-# Apply the Kubernetes manifests
-kubectl apply -f ../kubernetes/opentelemetry-demo.yaml
+# Create the namespace
+kubectl create namespace otel-demo
 
-# Or use Helm (if available)
+# Apply the Kubernetes manifests to the otel-demo namespace
+kubectl apply -f ../kubernetes/opentelemetry-demo.yaml -n otel-demo
+
+# Or use Helm (if available) 
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm install otel-demo open-telemetry/opentelemetry-demo
+helm install otel-demo open-telemetry/opentelemetry-demo -n otel-demo --create-namespace
 ```
 
 ### 7. Access the Application

@@ -31,7 +31,7 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java:${protobufVersion}")
     testImplementation(kotlin("test"))
     implementation(kotlin("script-runtime"))
-    implementation("com.azure:azure-messaging-eventhubs:5.18.10")
+    implementation("com.azure:azure-messaging-eventhubs:5.18.0")
     implementation("com.azure:azure-identity:1.13.3")
     implementation("com.google.api.grpc:proto-google-common-protos:2.62.0")
     implementation("io.grpc:grpc-protobuf:${grpcVersion}")

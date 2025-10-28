@@ -7,7 +7,7 @@ targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 
 @description('The name prefix for all resources')
-param projectName string = 'otel-demo'
+param projectName string = 'otel-demo-v1'
 
 @description('Environment name (dev, staging, prod)')
 param environment string = 'dev'
@@ -20,6 +20,9 @@ param nodeVmSize string = 'Standard_D4s_v3'
 
 @description('Initial node count')
 param nodeCount int = 3
+
+@description('Maximum pods per node')
+param maxPodsPerNode int = 30
 
 @description('Enable Azure Monitor for containers')
 param enableAzureMonitor bool = true
@@ -73,7 +76,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
       {
         name: subnetName
         properties: {
-          addressPrefix: '10.0.1.0/22'
+          addressPrefix: '10.0.0.0/22'
         }
       }
     ]
@@ -245,14 +248,15 @@ resource eventHubConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-
   parent: keyVault
   name: 'EventHubConnectionString'
   properties: {
-    value: eventHubAuthRule.listKeys().primaryConnectionString
+    // value: empty(eventHubAuthRule) ? '': empty(eventHubAuthRule.listKeys()) ? '':eventHubAuthRule.listKeys().primaryConnectionString
+    value: eventHubAuthRule!.listKeys()!.primaryConnectionString
     contentType: 'Connection String'
     attributes: {
       enabled: true
     }
   }
-  //dependsOn: [
-   // eventHubAuthRule
+  // dependsOn: [
+  //  eventHubAuthRule
   //]
 }
 
@@ -279,7 +283,7 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-02-01' = {
         type: 'VirtualMachineScaleSets'
         mode: 'System'
         vnetSubnetID: vnet.properties.subnets[0].id
-        maxPods: 110
+        maxPods: maxPodsPerNode
       }
     ]
     servicePrincipalProfile: {
@@ -315,8 +319,8 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-02-01' = {
 
 // Output values
 output aksClusterName string = aksCluster.name
-output acrLoginServer string = enableAcr && acr != null ? acr.properties.loginServer : ''
-output keyVaultUri string = enableKeyVault && keyVault != null ? keyVault.properties.vaultUri : ''
+// output acrLoginServer string = acr.properties.loginServer
+// output keyVaultUri string = keyVault.properties.vaultUri
 output managedIdentityClientId string = managedIdentity.properties.clientId
 output logAnalyticsWorkspaceId string = logAnalytics.id
 output appInsightsInstrumentationKey string = appInsights.properties.InstrumentationKey

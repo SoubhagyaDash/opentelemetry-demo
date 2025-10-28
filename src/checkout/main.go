@@ -236,8 +236,9 @@ func main() {
 
 	if svc.eventHubNamespace != "" {
 		config := eventhub.EventHubConfig{
-			NamespaceName: svc.eventHubNamespace,
-			EventHubName:  svc.eventHubName,
+			NamespaceName:    svc.eventHubNamespace,
+			EventHubName:     svc.eventHubName,
+			ConnectionString: os.Getenv("EVENTHUB_CONNECTION_STRING"),
 		}
 		svc.EventHubProducerClient, err = eventhub.CreateEventHubProducer(config, logger)
 		if err != nil {
@@ -397,7 +398,7 @@ func (cs *checkout) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (
 	}
 
 	// send to EventHub only if EventHub namespace is configured
-	if svc.eventHubNamespace != "" {
+	if cs.eventHubNamespace != "" {
 		logger.Info("sending to postProcessor via EventHub")
 		cs.sendToPostProcessor(ctx, orderResult)
 	}

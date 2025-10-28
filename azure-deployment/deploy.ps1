@@ -7,13 +7,16 @@ param(
     [string]$Action = "deploy",
     
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroup = "otel-demo-rg",
+    [string]$ResourceGroup = "otel-demo-v1",
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "SouthCentralUS",
     
     [Parameter(Mandatory=$false)]
-    [string]$DeploymentName = "otel-demo-deployment"
+    [string]$DeploymentName = "otel-demo-deployment",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$Namespace = "otel-demo"
 )
 
 # Configuration
@@ -229,7 +232,10 @@ function Deploy-OtelDemo {
         # Check if Kubernetes manifest exists
         $manifestPath = "..\kubernetes\opentelemetry-demo.yaml"
         if (Test-Path $manifestPath) {
-            kubectl apply -f $manifestPath
+            # Create namespace if it doesn't exist
+            kubectl create namespace $Namespace --dry-run=client -o yaml | kubectl apply -f -
+            # Apply the manifest to the specific namespace
+            kubectl apply -f $manifestPath -n $Namespace
             if ($LASTEXITCODE -eq 0) {
                 Write-Success "OpenTelemetry demo deployed successfully."
             }
@@ -239,7 +245,7 @@ function Deploy-OtelDemo {
         }
         else {
             Write-Warning "Kubernetes manifest not found. Please deploy manually using:"
-            Write-Host "  kubectl apply -f ..\kubernetes\opentelemetry-demo.yaml" -ForegroundColor Yellow
+            Write-Host "  kubectl apply -f ..\kubernetes\opentelemetry-demo.yaml -n $Namespace" -ForegroundColor Yellow
         }
     }
     catch {
